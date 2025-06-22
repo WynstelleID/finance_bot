@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.env
+.vscode/
+
+# Database
+*.db
+*.sqlite3
+/finance.db # Specifically ignore your SQLite database file
+
+# Logs
+*.log
+logs/
+
+# Flask
+.flaskenv
+
+# Editor specific files
+.idea/          # JetBrains IDEs (PyCharm, IntelliJ)
+*.swp           # Vim swap files
+*~              # Emacs backup files
+
+# OS generated files
+.DS_Store       # macOS
+.Trashes        # macOS
+Thumbs.db       # Windows
+ehthumbs.db     # Windows
+Desktop.ini     # Windows
+
+# ngrok
+.ngrok2/ # ngrok configuration and cache
+
+# Excel files (if generated locally and not intended for repo)
+*.xlsx
+*.xls

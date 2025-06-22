@@ -1,0 +1,440 @@
+# app.py
+from flask import Flask, request, jsonify, send_file
+from datetime import datetime, timedelta
+from sqlalchemy import func
+from database import init_db, get_db
+from models import User, Category, Transaction, TransactionType
+
+# Import Twilio's TwiML MessagingResponse
+from twilio.twiml.messaging_response import MessagingResponse
+
+from excel_generator import generate_excel_report # Keep this import
+
+import os
+import re
+
+app = Flask(__name__)
+
+# Initialize the database when the application starts
+with app.app_context():
+    init_db()
+
+@app.route('/')
+def home():
+    """
+    A simple home route to confirm the server is running.
+    """
+    return "Personal Finance Bot Backend is Running!"
+
+# --- Helper Functions and Handlers (DEFINED BEFORE WEBHOOK) ---
+
+def get_or_create_user(session, whatsapp_number):
+    """
+    Helper function to get an existing user or create a new one.
+    """
+    user = session.query(User).filter_by(whatsapp_number=whatsapp_number).first()
+    if not user:
+        user = User(whatsapp_number=whatsapp_number)
+        session.add(user)
+        session.commit() # Commit immediately to get the user ID
+        session.refresh(user)
+    return user
+
+def parse_command(message_text):
+    """
+    Parses a raw message text into a command and arguments.
+    Example: "/income 500000 salary" -> ("income", ["500000", "salary"])
+    """
+    parts = message_text.strip().split(maxsplit=2) # Split by first two spaces max
+    command = parts[0].lower()
+    args = parts[1:] if len(parts) > 1 else []
+    return command, args
+
+def get_help_message():
+    """
+    Provides a list of available commands to the user.
+    """
+    return (
+        "Here are the commands you can use:\n"
+        "/income <amount> <category> [notes] - Record income\n"
+        "/expense <amount> <category> [notes] - Record expense\n"
+        "/addcategory <type> <name> - Add a new category (e.g., income Salary, expense Food)\n"
+        "/editcategory <old_name> <new_name> <type> - Edit a category name\n"
+        "/deletecategory <name> <type> - Delete a category\n"
+        "/asset <amount> [notes] - Adjust your total assets (can be positive or negative)\n"
+        "/report [monthly/weekly/all] - Get financial report (Note: Actual file download via WhatsApp requires more setup)\n"
+        "/history [count] - Show recent transactions (default: 5)\n"
+        "/summary - Show total income, expenses, and current assets\n"
+        "/help - Show this help message"
+    )
+
+def handle_income(session, user, args):
+    """Handles the /income command."""
+    if len(args) < 2:
+        raise ValueError("Usage: /income <amount> <category> [notes]")
+    try:
+        amount = float(args[0])
+        if amount <= 0:
+            raise ValueError("Amount must be positive.")
+    except ValueError:
+        raise ValueError("Invalid amount. Please provide a number.")
+
+    category_name = args[1].lower()
+    notes = args[2] if len(args) > 2 else None
+
+    category = session.query(Category).filter_by(user_id=user.id, name=category_name, type=TransactionType.INCOME).first()
+    if not category:
+        # Auto-add category if not found
+        category = Category(user_id=user.id, name=category_name, type=TransactionType.INCOME)
+        session.add(category)
+        session.flush() # Flush to get category ID before adding transaction
+
+    transaction = Transaction(
+        user_id=user.id,
+        type=TransactionType.INCOME,
+        amount=amount,
+        category_id=category.id,
+        notes=notes
+    )
+    session.add(transaction)
+    return f"Income recorded: Rp{amount:,.2f} for '{category.name}'. Notes: {notes if notes else 'None'}."
+
+def handle_expense(session, user, args):
+    """Handles the /expense command."""
+    if len(args) < 2:
+        raise ValueError("Usage: /expense <amount> <category> [notes]")
+    try:
+        amount = float(args[0])
+        if amount <= 0:
+            raise ValueError("Amount must be positive.")
+    except ValueError:
+        raise ValueError("Invalid amount. Please provide a number.")
+
+    category_name = args[1].lower()
+    notes = args[2] if len(args) > 2 else None
+
+    category = session.query(Category).filter_by(user_id=user.id, name=category_name, type=TransactionType.EXPENSE).first()
+    if not category:
+        # Auto-add category if not found
+        category = Category(user_id=user.id, name=category_name, type=TransactionType.EXPENSE)
+        session.add(category)
+        session.flush()
+
+    transaction = Transaction(
+        user_id=user.id,
+        type=TransactionType.EXPENSE,
+        amount=amount,
+        category_id=category.id,
+        notes=notes
+    )
+    session.add(transaction)
+    return f"Expense recorded: Rp{amount:,.2f} for '{category.name}'. Notes: {notes if notes else 'None'}."
+
+def handle_add_category(session, user, args):
+    """Handles the /addcategory command."""
+    if len(args) < 2:
+        raise ValueError("Usage: /addcategory <type (income/expense)> <name>")
+
+    category_type_str = args[0].lower()
+    category_name = args[1].lower()
+
+    if category_type_str == 'income':
+        category_type = TransactionType.INCOME
+    elif category_type_str == 'expense':
+        category_type = TransactionType.EXPENSE
+    else:
+        raise ValueError("Invalid category type. Must be 'income' or 'expense'.")
+
+    existing_category = session.query(Category).filter_by(
+        user_id=user.id, name=category_name, type=category_type
+    ).first()
+
+    if existing_category:
+        return f"Category '{category_name}' ({category_type.value}) already exists."
+
+    new_category = Category(user_id=user.id, name=category_name, type=category_type)
+    session.add(new_category)
+    return f"Category '{category_name}' ({category_type.value}) added successfully."
+
+def handle_edit_category(session, user, args):
+    """Handles the /editcategory command."""
+    if len(args) < 3:
+        raise ValueError("Usage: /editcategory <old_name> <new_name> <type (income/expense)>")
+
+    old_name = args[0].lower()
+    new_name = args[1].lower()
+    category_type_str = args[2].lower()
+
+    if category_type_str == 'income':
+        category_type = TransactionType.INCOME
+    elif category_type_str == 'expense':
+        category_type = TransactionType.EXPENSE
+    else:
+        raise ValueError("Invalid category type. Must be 'income' or 'expense'.")
+
+    category = session.query(Category).filter_by(
+        user_id=user.id, name=old_name, type=category_type
+    ).first()
+
+    if not category:
+        return f"Category '{old_name}' ({category_type.value}) not found."
+
+    category.name = new_name
+    return f"Category '{old_name}' ({category_type.value}) renamed to '{new_name}'."
+
+def handle_delete_category(session, user, args):
+    """Handles the /deletecategory command."""
+    if len(args) < 2:
+        raise ValueError("Usage: /deletecategory <name> <type (income/expense)>")
+
+    category_name = args[0].lower()
+    category_type_str = args[1].lower()
+
+    if category_type_str == 'income':
+        category_type = TransactionType.INCOME
+    elif category_type_str == 'expense':
+        category_type = TransactionType.EXPENSE
+    else:
+        raise ValueError("Invalid category type. Must be 'income' or 'expense'.")
+
+    category = session.query(Category).filter_by(
+        user_id=user.id, name=category_name, type=category_type
+    ).first()
+
+    if not category:
+        return f"Category '{category_name}' ({category_type.value}) not found."
+
+    # Check if there are any transactions linked to this category
+    linked_transactions = session.query(Transaction).filter_by(category_id=category.id).first()
+    if linked_transactions:
+        return (f"Cannot delete category '{category_name}' as it has existing transactions linked. "
+                "Please reassign or delete linked transactions first.")
+
+    session.delete(category)
+    return f"Category '{category_name}' ({category_type.value}) deleted successfully."
+
+def handle_asset_adjustment(session, user, args):
+    """Handles the /asset command."""
+    if len(args) < 1:
+        raise ValueError("Usage: /asset <amount> [notes]")
+    try:
+        amount = float(args[0])
+    except ValueError:
+        raise ValueError("Invalid amount. Please provide a number.")
+
+    notes = args[1] if len(args) > 1 else "Manual asset adjustment"
+
+    transaction = Transaction(
+        user_id=user.id,
+        type=TransactionType.ASSET_ADJUSTMENT,
+        amount=amount,
+        notes=notes
+    )
+    session.add(transaction)
+    return f"Asset adjusted by Rp{amount:,.2f}. Notes: {notes}."
+
+# Renamed handle_report to handle_report_data as it won't send file directly via webhook response
+def handle_report_data(session, user, args):
+    """
+    Handles the /report command. Generates an Excel file buffer.
+    Doesn't send the file directly as webhook response.
+    """
+    period = args[0].lower() if args else 'monthly'
+
+    end_date = datetime.now()
+    start_date = None
+
+    if period == 'monthly':
+        start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    elif period == 'weekly':
+        start_date = end_date - timedelta(days=end_date.weekday()) # Monday of current week
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+    elif period == 'all':
+        start_date = None # No start date for all time
+    else:
+        # Return None to indicate an invalid period
+        raise ValueError("Invalid report period. Use 'monthly', 'weekly', or 'all'.")
+
+    query = session.query(Transaction).filter_by(user_id=user.id)
+    if start_date:
+        query = query.filter(Transaction.transaction_date >= start_date)
+    query = query.order_by(Transaction.transaction_date.desc())
+
+    transactions = query.all()
+
+    if not transactions:
+        return None # Return None if no transactions
+
+    excel_file_buffer = generate_excel_report(transactions, start_date, end_date, user.whatsapp_number)
+    return excel_file_buffer
+
+
+def handle_history(session, user, args):
+    """Handles the /history command."""
+    count = 5 # Default
+    if args:
+        try:
+            count = int(args[0])
+            if count <= 0:
+                raise ValueError("Count must be positive.")
+        except ValueError:
+            return "Invalid count. Please provide a number."
+
+    transactions = session.query(Transaction).filter_by(user_id=user.id)\
+                                             .order_by(Transaction.transaction_date.desc())\
+                                             .limit(count).all()
+
+    if not transactions:
+        return "No transaction history found."
+
+    history_messages = ["Your recent transactions:"]
+    for t in transactions:
+        category_name = t.category.name if t.category else "N/A"
+        date_str = t.transaction_date.strftime('%Y-%m-%d %H:%M')
+        notes_str = f" ({t.notes})" if t.notes else ""
+        history_messages.append(f"• {date_str} | {t.type.value.capitalize()}: Rp{t.amount:,.2f} | {category_name}{notes_str}")
+
+    return "\n".join(history_messages)
+
+def handle_summary(session, user):
+    """Handles the /summary command."""
+    # Total income
+    total_income = session.query(func.sum(Transaction.amount))\
+                          .filter_by(user_id=user.id, type=TransactionType.INCOME)\
+                          .scalar() or 0.0
+
+    # Total expenses
+    total_expense = session.query(func.sum(Transaction.amount))\
+                           .filter_by(user_id=user.id, type=TransactionType.EXPENSE)\
+                           .scalar() or 0.0
+
+    # Total asset adjustments
+    total_asset_adjustment = session.query(func.sum(Transaction.amount))\
+                                    .filter_by(user_id=user.id, type=TransactionType.ASSET_ADJUSTMENT)\
+                                    .scalar() or 0.0
+
+    # Calculate current assets based on the sum of all income, expenses, and adjustments
+    current_assets = total_income - total_expense + total_asset_adjustment
+
+    summary_message = (
+        f"Financial Summary for {user.whatsapp_number}:\n"
+        f"• Total Income: Rp{total_income:,.2f}\n"
+        f"• Total Expenses: Rp{total_expense:,.2f}\n"
+        f"• Current Net Assets: Rp{current_assets:,.2f}"
+    )
+    return summary_message
+
+# --- Webhook Route (DEFINED AFTER ALL HANDLERS) ---
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """
+    This endpoint receives messages from a WhatsApp bot (e.g., Twilio).
+    Twilio sends data as application/x-www-form-urlencoded, not JSON.
+    We need to access request.form for the incoming data.
+    The 'Body' parameter contains the message text, and 'From' contains the sender's WhatsApp number.
+    """
+    message_text = request.form.get('Body')
+    whatsapp_number = request.form.get('From')
+
+    if not whatsapp_number or not message_text:
+        resp = MessagingResponse()
+        resp.message("Error: Missing 'From' or 'Body' parameters in message.")
+        return str(resp), 400
+
+    session = next(get_db())
+
+    response_message = "An internal error occurred. Please try again later." # Default error for internal issues
+
+    try:
+        user = get_or_create_user(session, whatsapp_number)
+        command, args = parse_command(message_text)
+
+
+        if command == '/income':
+            response_message = handle_income(session, user, args)
+        elif command == '/expense':
+            response_message = handle_expense(session, user, args)
+        elif command == '/addcategory':
+            response_message = handle_add_category(session, user, args)
+        elif command == '/editcategory':
+            response_message = handle_edit_category(session, user, args)
+        elif command == '/deletecategory':
+            response_message = handle_delete_category(session, user, args)
+        elif command == '/asset' or command == '/aset':
+            response_message = handle_asset_adjustment(session, user, args)
+        elif command == '/report':
+            excel_file_buffer = handle_report_data(session, user, args)
+            if excel_file_buffer:
+                response_message = "Your report has been generated! (Note: Actual file download via WhatsApp requires further Twilio media API integration)."
+            else:
+                response_message = "No data to generate report for the selected period."
+        elif command == '/history':
+            response_message = handle_history(session, user, args)
+        elif command == '/summary':
+            response_message = handle_summary(session, user)
+        elif command == '/help':
+            response_message = get_help_message()
+        else:
+            response_message = "Unknown command. Type /help for available commands."
+
+        session.commit()
+
+    except ValueError as e:
+        session.rollback()
+        response_message = f"Error: {e}"
+    except Exception as e:
+        session.rollback()
+        app.logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        response_message = "An internal error occurred. Please try again later."
+    finally:
+        session.close()
+
+    resp = MessagingResponse()
+    resp.message(response_message)
+    return str(resp)
+
+
+@app.route('/download_report/<user_whatsapp_number>/<period>', methods=['GET'])
+def download_report(user_whatsapp_number, period):
+    session = next(get_db())
+    try:
+        user = session.query(User).filter_by(whatsapp_number=user_whatsapp_number).first()
+        if not user:
+            return "User not found", 404
+
+        end_date = datetime.now()
+        start_date = None
+
+        if period == 'monthly':
+            start_date = end_date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        elif period == 'weekly':
+            start_date = end_date - timedelta(days=end_date.weekday())
+            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == 'all':
+            start_date = None
+        else:
+            return "Invalid report period", 400
+
+        query = session.query(Transaction).filter_by(user_id=user.id)
+        if start_date:
+            query = query.filter(Transaction.transaction_date >= start_date)
+        transactions = query.order_by(Transaction.transaction_date.desc()).all()
+
+        if not transactions:
+            return "No transactions found for this period for the user.", 200
+
+        excel_file_buffer = generate_excel_report(transactions, start_date, end_date, user.whatsapp_number)
+        filename = f"finance_report_{user.whatsapp_number}_{period}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+        return send_file(
+            excel_file_buffer,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+    finally:
+        session.close()
+
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
