@@ -1,29 +1,105 @@
 # app.py
+import sys
+import traceback
 from flask import Flask, request, jsonify, send_file
 from datetime import datetime, timedelta
 from sqlalchemy import func
-from database import init_db, get_db
-from models import User, Category, Transaction, TransactionType
+
+# Add startup logging
+print("Starting Finance Bot application...")
+print(f"Python version: {sys.version}")
+
+# Railway environment debugging
+print("=== RAILWAY ENVIRONMENT DEBUG ===")
+railway_env_vars = ['PORT', 'RAILWAY_ENVIRONMENT', 'RAILWAY_PROJECT_ID', 'RAILWAY_SERVICE_ID']
+for var in railway_env_vars:
+    value = os.environ.get(var, 'NOT SET')
+    print(f"{var}: {value}")
+print("===================================")
+
+try:
+    from database import init_db, get_db
+    from models import User, Category, Transaction, TransactionType
+    print("Database modules imported successfully")
+except Exception as e:
+    print(f"ERROR importing database modules: {e}")
+    traceback.print_exc()
+    sys.exit(1)
 
 # Import Twilio's TwiML MessagingResponse
-from twilio.twiml.messaging_response import MessagingResponse
+try:
+    from twilio.twiml.messaging_response import MessagingResponse
+    print("Twilio module imported successfully")
+except Exception as e:
+    print(f"ERROR importing Twilio: {e}")
+    traceback.print_exc()
+    sys.exit(1)
 
-from excel_generator import generate_excel_report # Keep this import
+try:
+    from excel_generator import generate_excel_report # Keep this import
+    print("Excel generator imported successfully")
+except Exception as e:
+    print(f"ERROR importing excel_generator: {e}")
+    traceback.print_exc()
+    sys.exit(1)
 
 import os
 import re
 
-app = Flask(__name__)
+print("Creating Flask application...")
+try:
+    app = Flask(__name__)
+    print("Flask application created successfully")
 
-# Initialize the database when the application starts
-with app.app_context():
+    # Initialize the database when the application starts
+    print("Initializing database...")
+    with app.app_context():
+        try:
+            init_db()
+            print("Application started successfully with database connection!")
+        except Exception as e:
+            print(f"Warning: Database initialization failed: {e}")
+            print("The application will still start, but database functionality may be limited.")
+            print("Please check your Railway database configuration.")
+            traceback.print_exc()
+
+    # Test that all handler functions are defined
+    print("Testing handler functions...")
     try:
-        init_db()
-        print("Application started successfully with database connection!")
+        # Test if all handler functions exist
+        handler_functions = [
+            'handle_income', 'handle_expense', 'handle_add_category', 
+            'handle_edit_category', 'handle_delete_category', 
+            'handle_asset_adjustment', 'handle_report_data', 
+            'handle_history', 'handle_summary'
+        ]
+        
+        for func_name in handler_functions:
+            if func_name in globals():
+                print(f"✓ {func_name} is defined")
+            else:
+                print(f"✗ {func_name} is NOT defined")
+        
+        print("Handler function test completed")
     except Exception as e:
-        print(f"Warning: Database initialization failed: {e}")
-        print("The application will still start, but database functionality may be limited.")
-        print("Please check your Railway database configuration.")
+        print(f"Error testing handler functions: {e}")
+
+    print("Flask application setup completed successfully!")
+    
+    # Application startup banner
+    print("=" * 50)
+    print("🚀 FINANCE BOT APPLICATION READY!")
+    print("✅ All modules loaded successfully")
+    print("✅ Flask application initialized") 
+    print("✅ Database connection established")
+    print("✅ All handler functions verified")
+    print("🌐 Ready to serve requests!")
+    print("=" * 50)
+    
+except Exception as e:
+    print(f"CRITICAL ERROR during Flask application setup: {e}")
+    traceback.print_exc()
+    sys.exit(1)
 
 @app.route('/')
 def home():
@@ -37,7 +113,27 @@ def health():
     """
     Health check endpoint for debugging 502 errors.
     """
-    return {"status": "healthy", "message": "Finance Bot is running"}, 200
+    try:
+        # Test database connection
+        session = next(get_db())
+        session.close()
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    return {
+        "status": "healthy", 
+        "message": "Finance Bot is running",
+        "database": db_status,
+        "version": "1.0"
+    }, 200
+
+@app.route('/test')
+def test():
+    """
+    Simple test endpoint.
+    """
+    return "Test endpoint working!", 200
 
 # --- Helper Functions and Handlers (DEFINED BEFORE WEBHOOK) ---
 

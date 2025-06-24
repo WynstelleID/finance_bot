@@ -1,1 +1,1 @@
-web: sleep 3 && gunicorn --bind 0.0.0.0:$PORT app:app
+web: sleep 3 && gunicorn -c gunicorn.conf.py app:app
