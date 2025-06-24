@@ -4,6 +4,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.ext.declarative import declarative_base
 import os
 import sys
+import time
 
 # Debug environment variables for Railway
 print("=== DATABASE CONFIGURATION DEBUG ===")
@@ -38,49 +39,65 @@ def create_database_engine(database_url, retry_with_sqlite=True):
     """
     Create database engine with fallback to SQLite if PostgreSQL fails.
     """
-    try:
-        # Membuat engine SQLAlchemy dengan connection pooling yang lebih robust untuk PostgreSQL
-        if database_url.startswith("postgresql://"):
-            engine = create_engine(
-                database_url, 
-                echo=False,
-                pool_pre_ping=True,  # Verify connections before use
-                pool_recycle=300,    # Recycle connections every 5 minutes
-                connect_args={"connect_timeout": 10}  # 10 second timeout
-            )
-        else:
-            engine = create_engine(database_url, echo=False)
-        
-        # Test the connection more thoroughly
+    max_retries = 3
+    
+    for attempt in range(max_retries):
         try:
-            with engine.connect() as conn:
-                # Try a simple query to ensure the connection actually works
-                if database_url.startswith("postgresql://"):
-                    from sqlalchemy import text
-                    conn.execute(text("SELECT 1"))
-                print("Database connection successful!")
-                return engine
-        except Exception as conn_error:
-            print(f"Connection test failed: {conn_error}")
-            raise conn_error
+            # Membuat engine SQLAlchemy dengan connection pooling yang lebih robust untuk PostgreSQL
+            if database_url.startswith("postgresql://"):
+                engine = create_engine(
+                    database_url, 
+                    echo=False,
+                    pool_pre_ping=True,  # Verify connections before use
+                    pool_recycle=300,    # Recycle connections every 5 minutes
+                    connect_args={"connect_timeout": 10}  # 10 second timeout
+                )
+            else:
+                engine = create_engine(database_url, echo=False)
             
-    except Exception as e:
-        print(f"Database connection failed: {e}")
-        
-        if ("postgres.railway.internal" in str(e) or "Name or service not known" in str(e)) and retry_with_sqlite:
-            print("ERROR: Railway PostgreSQL database is not properly connected.")
-            print("Please check your Railway dashboard to ensure:")
-            print("1. PostgreSQL service is added to your project")
-            print("2. Database service is linked to your application")
-            print("3. DATABASE_URL environment variable is properly set")
-            print("\nFalling back to SQLite for now...")
+            # Test the connection more thoroughly
+            try:
+                with engine.connect() as conn:
+                    # Try a simple query to ensure the connection actually works
+                    if database_url.startswith("postgresql://"):
+                        from sqlalchemy import text
+                        conn.execute(text("SELECT 1"))
+                    print("Database connection successful!")
+                    return engine
+            except Exception as conn_error:
+                print(f"Connection test failed (attempt {attempt + 1}/{max_retries}): {conn_error}")
+                if attempt < max_retries - 1:
+                    print(f"Retrying in {2 ** attempt} seconds...")
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+                raise conn_error
+                
+        except Exception as e:
+            print(f"Database connection failed (attempt {attempt + 1}/{max_retries}): {e}")
             
-            # Fallback to SQLite
-            fallback_url = "sqlite:///finance.db"
-            return create_database_engine(fallback_url, retry_with_sqlite=False)
-        else:
-            print(f"DATABASE_URL: {database_url}")
-            raise
+            if attempt < max_retries - 1:
+                if "postgres.railway.internal" in str(e) or "Name or service not known" in str(e):
+                    print("Railway private networking issue detected, retrying...")
+                    time.sleep(2 ** attempt)  # Exponential backoff
+                    continue
+            
+            # If all retries failed, try fallback
+            if ("postgres.railway.internal" in str(e) or "Name or service not known" in str(e)) and retry_with_sqlite:
+                print("ERROR: Railway PostgreSQL database is not properly connected after retries.")
+                print("Please check your Railway dashboard to ensure:")
+                print("1. PostgreSQL service is added to your project")
+                print("2. Database service is linked to your application")
+                print("3. DATABASE_URL environment variable is properly set")
+                print("4. Add ENABLE_ALPINE_PRIVATE_NETWORKING=true if using Alpine containers")
+                print("5. Ensure you have a 'sleep 3' in your start command")
+                print("\nFalling back to SQLite for now...")
+                
+                # Fallback to SQLite
+                fallback_url = "sqlite:///finance.db"
+                return create_database_engine(fallback_url, retry_with_sqlite=False)
+            else:
+                print(f"DATABASE_URL: {database_url}")
+                raise
 
 # Create the engine with fallback mechanism
 engine = create_database_engine(DATABASE_URL)
