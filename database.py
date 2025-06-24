@@ -5,6 +5,20 @@ from sqlalchemy.ext.declarative import declarative_base
 import os
 import sys
 
+# Debug environment variables for Railway
+print("=== DATABASE CONFIGURATION DEBUG ===")
+railway_vars = [key for key in os.environ.keys() if 'DATABASE' in key or 'POSTGRES' in key or 'RAILWAY' in key]
+if railway_vars:
+    print("Found Railway/Database environment variables:")
+    for var in railway_vars:
+        if 'PASSWORD' in var or 'PASS' in var:
+            print(f"  {var}: ***HIDDEN***")
+        else:
+            print(f"  {var}: {os.environ[var]}")
+else:
+    print("No Railway/Database environment variables found")
+print("=====================================")
+
 # Gunakan DATABASE_URL dari environment variable yang disediakan Railway.
 # Jika tidak ada (misalnya, saat development lokal tanpa Railway), fallback ke SQLite lokal.
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///finance.db")
@@ -37,15 +51,23 @@ def create_database_engine(database_url, retry_with_sqlite=True):
         else:
             engine = create_engine(database_url, echo=False)
         
-        # Test the connection
-        with engine.connect() as conn:
-            print("Database connection successful!")
-            return engine
+        # Test the connection more thoroughly
+        try:
+            with engine.connect() as conn:
+                # Try a simple query to ensure the connection actually works
+                if database_url.startswith("postgresql://"):
+                    from sqlalchemy import text
+                    conn.execute(text("SELECT 1"))
+                print("Database connection successful!")
+                return engine
+        except Exception as conn_error:
+            print(f"Connection test failed: {conn_error}")
+            raise conn_error
             
     except Exception as e:
         print(f"Database connection failed: {e}")
         
-        if "postgres.railway.internal" in str(e) and retry_with_sqlite:
+        if ("postgres.railway.internal" in str(e) or "Name or service not known" in str(e)) and retry_with_sqlite:
             print("ERROR: Railway PostgreSQL database is not properly connected.")
             print("Please check your Railway dashboard to ensure:")
             print("1. PostgreSQL service is added to your project")
@@ -77,13 +99,37 @@ def init_db():
     Inisialisasi database: membuat semua tabel yang didefinisikan.
     Ini harus dipanggil sekali saat aplikasi dimulai.
     """
+    global engine, SessionLocal, db_session
+    
     try:
         import models # Impor model di sini untuk memastikan mereka terdaftar dengan Base
         Base.metadata.create_all(bind=engine)
         print(f"Database initialized successfully!")
     except Exception as e:
-        print(f"Failed to initialize database: {e}")
-        raise
+        print(f"Failed to initialize database with current engine: {e}")
+        
+        # If we get a postgres.railway.internal error, try to recreate engine with fallback
+        if "postgres.railway.internal" in str(e):
+            print("Attempting to recreate database engine with fallback...")
+            try:
+                # Try to recreate the engine with fallback
+                original_url = os.environ.get("DATABASE_URL", "sqlite:///finance.db")
+                engine = create_database_engine(original_url)
+                
+                # Update the session makers to use the new engine
+                SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+                db_session = scoped_session(SessionLocal)
+                
+                # Try to create tables again
+                Base.metadata.create_all(bind=engine)
+                print(f"Database initialized successfully with fallback!")
+                return
+                
+            except Exception as fallback_error:
+                print(f"Fallback initialization also failed: {fallback_error}")
+                raise
+        else:
+            raise
 
 def get_db():
     """

@@ -17,7 +17,13 @@ app = Flask(__name__)
 
 # Initialize the database when the application starts
 with app.app_context():
-    init_db()
+    try:
+        init_db()
+        print("Application started successfully with database connection!")
+    except Exception as e:
+        print(f"Warning: Database initialization failed: {e}")
+        print("The application will still start, but database functionality may be limited.")
+        print("Please check your Railway database configuration.")
 
 @app.route('/')
 def home():
