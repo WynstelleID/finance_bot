@@ -20,8 +20,8 @@ else:
     print("No Railway/Database environment variables found")
 print("=====================================")
 
-# Gunakan DATABASE_URL dari environment variable yang disediakan Railway.
-# Jika tidak ada (misalnya, saat development lokal tanpa Railway), fallback ke SQLite lokal.
+# Use DATABASE_URL from environment variable provided by Railway.
+# If not available (e.g., during local development without Railway), fallback to local SQLite.
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///finance.db")
 
 # Print database URL for debugging (without password if it's PostgreSQL)
@@ -43,7 +43,7 @@ def create_database_engine(database_url, retry_with_sqlite=True):
     
     for attempt in range(max_retries):
         try:
-            # Membuat engine SQLAlchemy dengan connection pooling yang lebih robust untuk PostgreSQL
+            # Create SQLAlchemy engine with robust connection pooling for PostgreSQL
             if database_url.startswith("postgresql://"):
                 engine = create_engine(
                     database_url, 
@@ -102,24 +102,24 @@ def create_database_engine(database_url, retry_with_sqlite=True):
 # Create the engine with fallback mechanism
 engine = create_database_engine(DATABASE_URL)
 
-# Base untuk model deklaratif
+# Base for declarative models
 Base = declarative_base()
 
 # Session maker
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Scoped session untuk sesi thread-local
+# Scoped session for thread-local sessions
 db_session = scoped_session(SessionLocal)
 
 def init_db():
     """
-    Inisialisasi database: membuat semua tabel yang didefinisikan.
-    Ini harus dipanggil sekali saat aplikasi dimulai.
+    Initialize database: create all defined tables.
+    This should be called once when the application starts.
     """
     global engine, SessionLocal, db_session
     
     try:
-        import models # Impor model di sini untuk memastikan mereka terdaftar dengan Base
+        import models # Import models here to ensure they are registered with Base
         Base.metadata.create_all(bind=engine)
         print(f"Database initialized successfully!")
     except Exception as e:
@@ -150,8 +150,8 @@ def init_db():
 
 def get_db():
     """
-    Fungsi untuk mendapatkan sesi database.
-    Memastikan sesi ditutup dengan benar setelah digunakan.
+    Function to get database session.
+    Ensures session is properly closed after use.
     """
     session = db_session()
     try:
@@ -160,8 +160,8 @@ def get_db():
         session.close()
 
 if __name__ == '__main__':
-    # Blok ini memungkinkan Anda menjalankan `python database.py` secara lokal
-    # untuk menginisialisasi database (akan menggunakan SQLite jika tidak ada DATABASE_URL).
+    # This block allows you to run `python database.py` locally
+    # to initialize the database (will use SQLite if no DATABASE_URL).
     init_db()
     print("Database initialization complete.")
     

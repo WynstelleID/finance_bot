@@ -32,6 +32,13 @@ def home():
     """
     return "Personal Finance Bot Backend is Running!"
 
+@app.route('/health')
+def health():
+    """
+    Health check endpoint for debugging 502 errors.
+    """
+    return {"status": "healthy", "message": "Finance Bot is running"}, 200
+
 # --- Helper Functions and Handlers (DEFINED BEFORE WEBHOOK) ---
 
 def get_or_create_user(session, whatsapp_number):
@@ -331,7 +338,7 @@ def handle_summary(session, user):
     return summary_message
 
 # --- Webhook Route (DEFINED AFTER ALL HANDLERS) ---
-@app.route('/webhook', methods=['POST'])
+@app.route('/webhook', methods=['POST', 'GET'])
 def webhook():
     """
     This endpoint receives messages from a WhatsApp bot (e.g., Twilio).
@@ -339,65 +346,84 @@ def webhook():
     We need to access request.form for the incoming data.
     The 'Body' parameter contains the message text, and 'From' contains the sender's WhatsApp number.
     """
-    message_text = request.form.get('Body')
-    whatsapp_number = request.form.get('From')
-
-    if not whatsapp_number or not message_text:
-        resp = MessagingResponse()
-        resp.message("Error: Missing 'From' or 'Body' parameters in message.")
-        return str(resp), 400
-
-    session = next(get_db())
-
-    response_message = "An internal error occurred. Please try again later." # Default error for internal issues
-
+    if request.method == 'GET':
+        return {"status": "webhook endpoint is working", "method": "GET"}, 200
+    
     try:
-        user = get_or_create_user(session, whatsapp_number)
-        command, args = parse_command(message_text)
+        print("Webhook called - processing request...")
+        
+        message_text = request.form.get('Body')
+        whatsapp_number = request.form.get('From')
 
+        if not whatsapp_number or not message_text:
+            print("Missing required parameters")
+            resp = MessagingResponse()
+            resp.message("Error: Missing 'From' or 'Body' parameters in message.")
+            return str(resp), 400
 
-        if command == '/income':
-            response_message = handle_income(session, user, args)
-        elif command == '/expense':
-            response_message = handle_expense(session, user, args)
-        elif command == '/addcategory':
-            response_message = handle_add_category(session, user, args)
-        elif command == '/editcategory':
-            response_message = handle_edit_category(session, user, args)
-        elif command == '/deletecategory':
-            response_message = handle_delete_category(session, user, args)
-        elif command == '/asset' or command == '/aset':
-            response_message = handle_asset_adjustment(session, user, args)
-        elif command == '/report':
-            excel_file_buffer = handle_report_data(session, user, args)
-            if excel_file_buffer:
-                response_message = "Your report has been generated! (Note: Actual file download via WhatsApp requires further Twilio media API integration)."
+        print(f"Processing message from {whatsapp_number}: {message_text}")
+        
+        session = next(get_db())
+
+        response_message = "An internal error occurred. Please try again later." # Default error for internal issues
+
+        try:
+            user = get_or_create_user(session, whatsapp_number)
+            command, args = parse_command(message_text)
+
+            if command == '/income':
+                response_message = handle_income(session, user, args)
+            elif command == '/expense':
+                response_message = handle_expense(session, user, args)
+            elif command == '/addcategory':
+                response_message = handle_add_category(session, user, args)
+            elif command == '/editcategory':
+                response_message = handle_edit_category(session, user, args)
+            elif command == '/deletecategory':
+                response_message = handle_delete_category(session, user, args)
+            elif command == '/asset' or command == '/aset':
+                response_message = handle_asset_adjustment(session, user, args)
+            elif command == '/report':
+                excel_file_buffer = handle_report_data(session, user, args)
+                if excel_file_buffer:
+                    response_message = "Your report has been generated! (Note: Actual file download via WhatsApp requires further Twilio media API integration)."
+                else:
+                    response_message = "No data to generate report for the selected period."
+            elif command == '/history':
+                response_message = handle_history(session, user, args)
+            elif command == '/summary':
+                response_message = handle_summary(session, user)
+            elif command == '/help':
+                response_message = get_help_message()
             else:
-                response_message = "No data to generate report for the selected period."
-        elif command == '/history':
-            response_message = handle_history(session, user, args)
-        elif command == '/summary':
-            response_message = handle_summary(session, user)
-        elif command == '/help':
-            response_message = get_help_message()
-        else:
-            response_message = "Unknown command. Type /help for available commands."
+                response_message = "Unknown command. Type /help for available commands."
 
-        session.commit()
+            session.commit()
+            print(f"Successfully processed command: {command}")
 
-    except ValueError as e:
-        session.rollback()
-        response_message = f"Error: {e}"
+        except ValueError as e:
+            session.rollback()
+            response_message = f"Error: {e}"
+            print(f"ValueError in webhook: {e}")
+        except Exception as e:
+            session.rollback()
+            app.logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+            print(f"Unexpected error in webhook: {e}")
+            response_message = "An internal error occurred. Please try again later."
+        finally:
+            session.close()
+
+        resp = MessagingResponse()
+        resp.message(response_message)
+        print(f"Sending response: {response_message}")
+        return str(resp)
+        
     except Exception as e:
-        session.rollback()
-        app.logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        response_message = "An internal error occurred. Please try again later."
-    finally:
-        session.close()
-
-    resp = MessagingResponse()
-    resp.message(response_message)
-    return str(resp)
+        print(f"Critical error in webhook: {e}")
+        app.logger.error(f"Critical webhook error: {e}", exc_info=True)
+        resp = MessagingResponse()
+        resp.message("Service temporarily unavailable. Please try again later.")
+        return str(resp), 500
 
 
 @app.route('/download_report/<user_whatsapp_number>/<period>', methods=['GET'])
@@ -443,20 +469,19 @@ def download_report(user_whatsapp_number, period):
 
 
 if __name__ == '__main__':
-    # Blok ini memungkinkan Anda menjalankan `python app.py` secara lokal
-    # untuk pengembangan.
-    # Namun, di Railway, Gunicorn akan menjalankan aplikasi,
-    # jadi baris app.run() di bawah tidak akan dieksekusi di sana.
-    # Anda bisa membiarkannya untuk pengembangan lokal, atau mengomentarinya.
+    # This block allows you to run `python app.py` locally for development.
+    # However, on Railway, Gunicorn will run the application,
+    # so the app.run() line below will not be executed there.
+    # You can leave it for local development, or comment it out.
 
-    # Jika Anda ingin menjalankan secara lokal dengan Gunicorn juga,
-    # Anda akan menjalankan 'gunicorn --bind 127.0.0.1:5000 app:app' secara lokal
-    # alih-alih 'python app.py'.
+    # If you want to run locally with Gunicorn as well,
+    # you would run 'gunicorn --bind 127.0.0.1:5000 app:app' locally
+    # instead of 'python app.py'.
 
-    # Hapus atau komentari baris di bawah ini untuk deployment produksi:
+    # Remove or comment out the line below for production deployment:
     # port = int(os.environ.get('PORT', 5000))
     # app.run(debug=True, host='0.0.0.0', port=port)
 
-    # Anda mungkin ingin menyimpan init_db() di sini untuk pengembangan lokal mudah
+    # You might want to keep init_db() here for easy local development
     init_db()
     print("Database initialization complete for local run.")
