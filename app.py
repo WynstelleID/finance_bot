@@ -62,27 +62,6 @@ try:
             print("Please check your Railway database configuration.")
             traceback.print_exc()
 
-    # Test that all handler functions are defined
-    print("Testing handler functions...")
-    try:
-        # Test if all handler functions exist
-        handler_functions = [
-            'handle_income', 'handle_expense', 'handle_add_category', 
-            'handle_edit_category', 'handle_delete_category', 
-            'handle_asset_adjustment', 'handle_report_data', 
-            'handle_history', 'handle_summary'
-        ]
-        
-        for func_name in handler_functions:
-            if func_name in globals():
-                print(f"✓ {func_name} is defined")
-            else:
-                print(f"✗ {func_name} is NOT defined")
-        
-        print("Handler function test completed")
-    except Exception as e:
-        print(f"Error testing handler functions: {e}")
-
     print("Flask application setup completed successfully!")
     
     # Application startup banner
@@ -91,7 +70,6 @@ try:
     print("✅ All modules loaded successfully")
     print("✅ Flask application initialized") 
     print("✅ Database connection established")
-    print("✅ All handler functions verified")
     print("🌐 Ready to serve requests!")
     print("=" * 50)
     
@@ -580,3 +558,27 @@ if __name__ == '__main__':
     # You might want to keep init_db() here for easy local development
     init_db()
     print("Database initialization complete for local run.")
+
+# Test that all handler functions are defined (after all definitions)
+print("Testing handler functions...")
+try:
+    # Test if all handler functions exist
+    handler_functions = [
+        'get_help_message', 'handle_income', 'handle_expense', 'handle_add_category', 
+        'handle_edit_category', 'handle_delete_category', 
+        'handle_asset_adjustment', 'handle_report_data', 
+        'handle_history', 'handle_summary'
+    ]
+    
+    for func_name in handler_functions:
+        if func_name in globals():
+            print(f"✓ {func_name} is defined")
+        else:
+            print(f"✗ {func_name} is NOT defined")
+    
+    print("Handler function test completed")
+    print("✅ All handler functions verified")
+except Exception as e:
+    print(f"Error testing handler functions: {e}")
+
+print("🎉 FINANCE BOT FULLY INITIALIZED AND READY!")
