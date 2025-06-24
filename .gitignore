@@ -39,3 +39,5 @@ Desktop.ini     # Windows
 # Excel files (if generated locally and not intended for repo)
 *.xlsx
 *.xls
+
+.DS_Store

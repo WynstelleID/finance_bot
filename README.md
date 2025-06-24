@@ -108,11 +108,11 @@ WhatsApp Integration: Twilio (requires external setup and ngrok for local testin
 
 Project Structure
 finance_bot/
-├── app.py # Main Flask application, defines routes and command handlers
-├── database.py # Database initialization and session management
-├── models.py # SQLAlchemy database models (User, Category, Transaction)
-├── excel_generator.py # Logic for generating Excel reports
-└── requirements.txt # Python dependencies
+├── app.py                  # Main Flask application, defines routes and command handlers
+├── database.py             # Database initialization and session management
+├── models.py               # SQLAlchemy database models (User, Category, Transaction)
+├── excel_generator.py      # Logic for generating Excel reports
+└── requirements.txt        # Python dependencies
 
 Installation Guide
 Follow these steps to set up and run the backend application.
@@ -150,17 +150,13 @@ Step 2: Create and Activate a Virtual Environment
 It's best practice to use a virtual environment to manage project dependencies.
 
 # Use your specific Python version (e.g., python3.11, python3.12)
-
 # On macOS/Linux:
-
 python3.11 -m venv venv
 
 # Activate the virtual environment
-
 source venv/bin/activate
 
 # On Windows (in Command Prompt):
-
 # .venv\Scripts\activate
 
 Your terminal prompt should now show (venv) indicating the environment is active.
@@ -207,7 +203,7 @@ Ensure the method is set to HTTP POST.
 
 Click the "Save" button at the bottom.
 
-Connect your WhatsApp number by sending the provided "join " message from your WhatsApp to the Twilio Sandbox number.
+Connect your WhatsApp number by sending the provided "join <code-word>" message from your WhatsApp to the Twilio Sandbox number.
 
 Usage / Bot Commands
 Once everything is set up, send these commands to your Twilio Sandbox WhatsApp number:
@@ -299,9 +295,9 @@ Install Twilio: pip install twilio
 
 Restart Flask App: Stop and restart python app.py.
 
-NameError: name 'handle*income' is not defined
+NameError: name 'handle_income' is not defined
 Problem: Functions like handle_income were called before they were defined in app.py.
-Solution: This has been addressed by reordering functions in app.py. Ensure all handle*\* and get_help_message functions are defined before the webhook function. Make sure you have the latest app.py content.
+Solution: This has been addressed by reordering functions in app.py. Ensure all handle_* and get_help_message functions are defined before the webhook function. Make sure you have the latest app.py content.
 
 NameError: name 'openpyxl' is not defined
 Problem: The openpyxl.styles module was referenced without being explicitly imported.
