@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # excel_generator.py
 from openpyxl import Workbook
 from openpyxl.styles import Font, Border, Side, Alignment # Add this line
