@@ -3,3 +3,4 @@ SQLAlchemy==2.0.19
 openpyxl==3.1.2
 twilio==9.6.3
 psycopg2-binary
+gunicorn

@@ -437,4 +437,20 @@ def download_report(user_whatsapp_number, period):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Blok ini memungkinkan Anda menjalankan `python app.py` secara lokal
+    # untuk pengembangan.
+    # Namun, di Railway, Gunicorn akan menjalankan aplikasi,
+    # jadi baris app.run() di bawah tidak akan dieksekusi di sana.
+    # Anda bisa membiarkannya untuk pengembangan lokal, atau mengomentarinya.
+
+    # Jika Anda ingin menjalankan secara lokal dengan Gunicorn juga,
+    # Anda akan menjalankan 'gunicorn --bind 127.0.0.1:5000 app:app' secara lokal
+    # alih-alih 'python app.py'.
+
+    # Hapus atau komentari baris di bawah ini untuk deployment produksi:
+    # port = int(os.environ.get('PORT', 5000))
+    # app.run(debug=True, host='0.0.0.0', port=port)
+
+    # Anda mungkin ingin menyimpan init_db() di sini untuk pengembangan lokal mudah
+    init_db()
+    print("Database initialization complete for local run.")

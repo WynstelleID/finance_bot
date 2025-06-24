@@ -2,7 +2,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.ext.declarative import declarative_base
-import os # <-- Pastikan 'os' diimpor
+import os
 
 # Gunakan DATABASE_URL dari environment variable yang disediakan Railway.
 # Jika tidak ada (misalnya, saat development lokal tanpa Railway), fallback ke SQLite lokal.
