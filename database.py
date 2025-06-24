@@ -6,8 +6,12 @@ import os
 
 # Define the path for the SQLite database file.
 # It will be created in the current working directory.
-DATABASE_FILE = os.path.join(os.getcwd(), 'finance.db')
-DATABASE_URL = f"sqlite:///{DATABASE_FILE}"
+# DATABASE_FILE = os.path.join(os.getcwd(), 'finance.db')
+# DATABASE_URL = f"sqlite:///{DATABASE_FILE}"
+
+# Gunakan DATABASE_URL dari environment variable yang disediakan Railway,
+# dengan fallback ke SQLite lokal jika variabel tidak ada (untuk dev lokal).
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///finance.db")
 
 # Create the SQLAlchemy engine. echo=True enables logging of SQL statements.
 engine = create_engine(DATABASE_URL, echo=False)
