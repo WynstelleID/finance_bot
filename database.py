@@ -2,12 +2,12 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.ext.declarative import declarative_base
-import os
+import os # <-- Pastikan ini ada
 
 # Define the path for the SQLite database file.
 # It will be created in the current working directory.
-# DATABASE_FILE = os.path.join(os.getcwd(), 'finance.db')
-# DATABASE_URL = f"sqlite:///{DATABASE_FILE}"
+# DATABASE_FILE = os.path.join(os.getcwd(), 'finance.db') # DIKOMENTARI ATAU DIHAPUS
+# DATABASE_URL = f"sqlite:///{DATABASE_FILE}" # DIKOMENTARI ATAU DIHAPUS
 
 # Gunakan DATABASE_URL dari environment variable yang disediakan Railway,
 # dengan fallback ke SQLite lokal jika variabel tidak ada (untuk dev lokal).
@@ -36,7 +36,8 @@ def init_db():
     """
     import models # Import models here to ensure they are registered with Base
     Base.metadata.create_all(bind=engine)
-    print(f"Database initialized at {DATABASE_FILE}")
+    # Ubah baris ini agar mencetak DATABASE_URL, bukan DATABASE_FILE
+    print(f"Database initialized using URL: {DATABASE_URL}") # <-- BARIS INI DIUBAH
 
 def get_db():
     """
