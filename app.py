@@ -1,6 +1,8 @@
 # app.py
 import sys
 import traceback
+import os
+import re
 from flask import Flask, request, jsonify, send_file
 from datetime import datetime, timedelta
 from sqlalchemy import func
@@ -42,9 +44,6 @@ except Exception as e:
     print(f"ERROR importing excel_generator: {e}")
     traceback.print_exc()
     sys.exit(1)
-
-import os
-import re
 
 print("Creating Flask application...")
 try:
