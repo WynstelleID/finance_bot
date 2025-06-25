@@ -148,6 +148,7 @@ def get_help_message():
         "/addcategory <type> <name> - Add a new category (e.g., income Salary, expense Food)\n"
         "/editcategory <old_name> <new_name> <type> - Edit a category name\n"
         "/deletecategory <name> <type> - Delete a category\n"
+        "/listcategories - Show all your categories\n"
         "/asset <amount> [notes] - Adjust your total assets (can be positive or negative)\n"
         "/delete <transaction_id> - Delete a specific transaction\n"
         "/report [monthly/weekly/all] - Get financial report\n"
@@ -274,24 +275,25 @@ def handle_edit_category(session, user, args):
 def handle_delete_category(session, user, args):
     """Handles the /deletecategory command."""
     if len(args) < 2:
-        raise ValueError("Usage: /deletecategory <name> <type (income/expense)>")
+        raise ValueError("Usage: /deletecategory <name> <type>\nExample: /deletecategory \"jajan [ayam geprek]\" expense\nUse /listcategories to see all your categories")
 
-    category_name = args[0].lower()
-    category_type_str = args[1].lower()
+    # Join all args except the last one as category name (allows spaces)
+    category_name = " ".join(args[:-1]).lower().strip('"').strip("'")
+    category_type_str = args[-1].lower()
 
     if category_type_str == 'income':
         category_type = TransactionType.INCOME
     elif category_type_str == 'expense':
         category_type = TransactionType.EXPENSE
     else:
-        raise ValueError("Invalid category type. Must be 'income' or 'expense'.")
+        raise ValueError("Invalid category type. Must be 'income' or 'expense'.\nUsage: /deletecategory <name> <type>")
 
     category = session.query(Category).filter_by(
         user_id=user.id, name=category_name, type=category_type
     ).first()
 
     if not category:
-        return f"Category '{category_name}' ({category_type.value}) not found."
+        return f"Category '{category_name}' ({category_type.value}) not found.\nUse /listcategories to see all your categories."
 
     # Check if there are any transactions linked to this category
     linked_transactions = session.query(Transaction).filter_by(category_id=category.id).first()
@@ -300,7 +302,42 @@ def handle_delete_category(session, user, args):
                 "Please reassign or delete linked transactions first.")
 
     session.delete(category)
-    return f"Category '{category_name}' ({category_type.value}) deleted successfully."
+    return f"✅ Category '{category_name}' ({category_type.value}) deleted successfully."
+
+def handle_list_categories(session, user, args):
+    """Handles the /listcategories command."""
+    categories = session.query(Category).filter_by(user_id=user.id)\
+                                        .order_by(Category.type, Category.name).all()
+
+    if not categories:
+        return "You have no categories yet.\nCategories are automatically created when you add transactions."
+
+    message_lines = ["📋 Your Categories:"]
+    message_lines.append("=" * 30)
+    
+    # Group by type
+    income_categories = [c for c in categories if c.type == TransactionType.INCOME]
+    expense_categories = [c for c in categories if c.type == TransactionType.EXPENSE]
+    
+    if income_categories:
+        message_lines.append("💰 INCOME:")
+        for cat in income_categories:
+            # Count transactions for this category
+            transaction_count = session.query(Transaction).filter_by(category_id=cat.id).count()
+            message_lines.append(f"  • {cat.name} ({transaction_count} transactions)")
+    
+    if expense_categories:
+        message_lines.append("\n💸 EXPENSE:")
+        for cat in expense_categories:
+            # Count transactions for this category
+            transaction_count = session.query(Transaction).filter_by(category_id=cat.id).count()
+            message_lines.append(f"  • {cat.name} ({transaction_count} transactions)")
+    
+    message_lines.append("=" * 30)
+    message_lines.append("💡 Use /deletecategory <name> <type> to delete")
+    message_lines.append("📝 Example: /deletecategory \"jajan [ayam geprek]\" expense")
+    
+    return "\n".join(message_lines)
 
 def handle_asset_adjustment(session, user, args):
     """Handles the /asset command."""
@@ -540,6 +577,8 @@ def webhook():
                 response_message = handle_edit_category(session, user, args)
             elif command == '/deletecategory':
                 response_message = handle_delete_category(session, user, args)
+            elif command == '/listcategories':
+                response_message = handle_list_categories(session, user, args)
             elif command == '/asset' or command == '/aset':
                 response_message = handle_asset_adjustment(session, user, args)
             elif command == '/delete':
@@ -657,7 +696,7 @@ try:
         'get_help_message', 'handle_income', 'handle_expense', 'handle_add_category', 
         'handle_edit_category', 'handle_delete_category', 
         'handle_asset_adjustment', 'handle_delete_transaction', 'handle_list_all_transactions',
-        'handle_report_data', 'handle_history', 'handle_summary'
+        'handle_report_data', 'handle_history', 'handle_summary', 'handle_list_categories'
     ]
     
     for func_name in handler_functions:
