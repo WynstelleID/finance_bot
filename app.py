@@ -149,8 +149,10 @@ def get_help_message():
         "/editcategory <old_name> <new_name> <type> - Edit a category name\n"
         "/deletecategory <name> <type> - Delete a category\n"
         "/asset <amount> [notes] - Adjust your total assets (can be positive or negative)\n"
-        "/report [monthly/weekly/all] - Get financial report (Note: Actual file download via WhatsApp requires more setup)\n"
+        "/delete <transaction_id> - Delete a specific transaction\n"
+        "/report [monthly/weekly/all] - Get financial report\n"
         "/history [count] - Show recent transactions (default: 5)\n"
+        "/listall - Show all transactions with IDs\n"
         "/summary - Show total income, expenses, and current assets\n"
         "/help - Show this help message"
     )
@@ -320,6 +322,89 @@ def handle_asset_adjustment(session, user, args):
     session.add(transaction)
     return f"Asset adjusted by Rp{amount:,.2f}. Notes: {notes}."
 
+def handle_delete_transaction(session, user, args):
+    """Handles the /delete command."""
+    if len(args) < 1:
+        raise ValueError("Usage: /delete <transaction_id>\nUse /listall to see transaction IDs")
+    
+    try:
+        transaction_id = int(args[0])
+    except ValueError:
+        raise ValueError("Invalid transaction ID. Please provide a number.\nUse /listall to see transaction IDs")
+
+    # Find the transaction
+    transaction = session.query(Transaction).filter_by(
+        id=transaction_id, user_id=user.id
+    ).first()
+
+    if not transaction:
+        return f"Transaction with ID {transaction_id} not found or doesn't belong to you.\nUse /listall to see your transactions."
+
+    # Store transaction details for confirmation message
+    transaction_details = f"{transaction.type.value.capitalize()}: Rp{transaction.amount:,.2f}"
+    if transaction.category:
+        transaction_details += f" ({transaction.category.name})"
+    if transaction.notes:
+        transaction_details += f" - {transaction.notes}"
+    
+    # Delete the transaction
+    session.delete(transaction)
+    
+    return f"✅ Transaction deleted successfully!\nDeleted: {transaction_details}"
+
+def handle_list_all_transactions(session, user, args):
+    """Handles the /listall command."""
+    # Get limit from args, default to 20
+    limit = 20
+    if args:
+        try:
+            limit = int(args[0])
+            if limit <= 0:
+                raise ValueError("Limit must be positive.")
+            if limit > 100:
+                limit = 100  # Cap at 100 for performance
+        except ValueError:
+            return "Invalid limit. Please provide a number (max 100)."
+
+    transactions = session.query(Transaction).filter_by(user_id=user.id)\
+                                             .order_by(Transaction.transaction_date.desc())\
+                                             .limit(limit).all()
+
+    if not transactions:
+        return "No transactions found."
+
+    message_lines = [f"📋 All Transactions (showing last {len(transactions)}):"]
+    message_lines.append("=" * 40)
+    
+    for t in transactions:
+        category_name = t.category.name if t.category else "N/A"
+        date_str = t.transaction_date.strftime('%m/%d %H:%M')
+        
+        # Format amount with + or - sign
+        if t.type == TransactionType.INCOME or t.type == TransactionType.ASSET_ADJUSTMENT:
+            amount_str = f"+Rp{t.amount:,.0f}"
+        else:
+            amount_str = f"-Rp{t.amount:,.0f}"
+        
+        # Create transaction line
+        transaction_line = f"ID:{t.id} | {date_str} | {amount_str}"
+        
+        # Add category if exists
+        if t.category:
+            transaction_line += f" | {category_name}"
+        
+        # Add notes if exists (truncated)
+        if t.notes:
+            notes_short = t.notes[:20] + "..." if len(t.notes) > 20 else t.notes
+            transaction_line += f" | {notes_short}"
+        
+        message_lines.append(transaction_line)
+    
+    message_lines.append("=" * 40)
+    message_lines.append("💡 Use /delete <ID> to delete a transaction")
+    
+    return "\n".join(message_lines)
+
 # Renamed handle_report to handle_report_data as it won't send file directly via webhook response
 def handle_report_data(session, user, args):
     """
@@ -457,6 +542,8 @@ def webhook():
                 response_message = handle_delete_category(session, user, args)
             elif command == '/asset' or command == '/aset':
                 response_message = handle_asset_adjustment(session, user, args)
+            elif command == '/delete':
+                response_message = handle_delete_transaction(session, user, args)
             elif command == '/report':
                 excel_file_buffer = handle_report_data(session, user, args)
                 if excel_file_buffer:
@@ -467,6 +554,8 @@ def webhook():
                 response_message = handle_history(session, user, args)
             elif command == '/summary':
                 response_message = handle_summary(session, user)
+            elif command == '/listall':
+                response_message = handle_list_all_transactions(session, user, args)
             elif command == '/help':
                 response_message = get_help_message()
             else:
@@ -567,8 +656,8 @@ try:
     handler_functions = [
         'get_help_message', 'handle_income', 'handle_expense', 'handle_add_category', 
         'handle_edit_category', 'handle_delete_category', 
-        'handle_asset_adjustment', 'handle_report_data', 
-        'handle_history', 'handle_summary'
+        'handle_asset_adjustment', 'handle_delete_transaction', 'handle_list_all_transactions',
+        'handle_report_data', 'handle_history', 'handle_summary'
     ]
     
     for func_name in handler_functions:
