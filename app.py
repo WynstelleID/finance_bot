@@ -130,9 +130,9 @@ def get_or_create_user(session, whatsapp_number):
 def parse_command(message_text):
     """
     Parses a raw message text into a command and arguments.
-    Example: "/income 500000 salary" -> ("income", ["500000", "salary"])
+    Example: "/income 500000 salary Monthly salary from company" -> ("income", ["500000", "salary", "Monthly salary from company"])
     """
-    parts = message_text.strip().split(maxsplit=2) # Split by first two spaces max
+    parts = message_text.strip().split(maxsplit=3) # Split into command, amount, category, and notes
     command = parts[0].lower()
     args = parts[1:] if len(parts) > 1 else []
     return command, args
@@ -161,7 +161,7 @@ def get_help_message():
 def handle_income(session, user, args):
     """Handles the /income command."""
     if len(args) < 2:
-        raise ValueError("Usage: /income <amount> <category> [notes]")
+        raise ValueError("Usage: /income <amount> <category> [notes]\nExample: /income 500000 salary Monthly salary from company")
     try:
         amount = float(args[0])
         if amount <= 0:
@@ -192,7 +192,7 @@ def handle_income(session, user, args):
 def handle_expense(session, user, args):
     """Handles the /expense command."""
     if len(args) < 2:
-        raise ValueError("Usage: /expense <amount> <category> [notes]")
+        raise ValueError("Usage: /expense <amount> <category> [notes]\nExample: /expense 25000 coffee Meeting with client at Starbucks")
     try:
         amount = float(args[0])
         if amount <= 0:
